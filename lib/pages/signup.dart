@@ -1,4 +1,7 @@
 import 'package:chat_app/pages/home.dart';
+import 'package:chat_app/pages/signin.dart';
+import 'package:chat_app/services/database.dart';
+import 'package:chat_app/services/shared_pref.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:random_string/random_string.dart';
@@ -12,7 +15,6 @@ class SignUp extends StatefulWidget {
 
 class _SignInState extends State<SignUp> {
 
-
   String email="", password="", name="", confirmPw="";
 
   TextEditingController emailcontroller = new TextEditingController();
@@ -22,36 +24,61 @@ class _SignInState extends State<SignUp> {
 
   final _formkey = GlobalKey<FormState>();
 
-  registration()async{
-    if (password != null && password==confirmPw){
-      try{
-        UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
-
-        String Id = randomAlphaNumeric(10);
-        Map<String, dynamic>userInfoMap={
-          "Name": namecontroller.text,
-          "E-mail": emailcontroller.text,
-          "username": emailcontroller.text.replaceAll("@gmail.com", ""),
-          "Photo": "https://www.google.com/search?q=colorfull+contact+person+icon&sca_esv=6d4fb2762afaf7cd&rlz=1C1CHBF_enPK1093PK1096&udm=2&biw=744&bih=738&sxsrf=ADLYWIJlmp9XcwKUwuWug6ledxOO4fqIvg%3A1723296622608&ei=bmu3Zo_kJOiM9u8PutKloAk&ved=0ahUKEwiP06GYxOqHAxVohv0HHTppCZQQ4dUDCBE&uact=5&oq=colorfull+contact+person+icon&gs_lp=Egxnd3Mtd2l6LXNlcnAiHWNvbG9yZnVsbCBjb250YWN0IHBlcnNvbiBpY29uSLicAVC5AViImQFwAngAkAEEmAGtAqAB6TSqAQgwLjI1LjguMbgBA8gBAPgBAZgCEqACoxqoAgrCAgoQABiABBhDGIoFwgIFEAAYgATCAgcQIxgnGOoCwgIEECMYJ8ICDRAAGIAEGLEDGEMYigXCAggQABiABBixA8ICBhAAGAgYHsICCRAAGIAEGBgYCpgDBIgGAZIHCDIuNS4xMC4xoAfndA&sclient=gws-wiz-serp#imgrc=rvWcBasFAISYcM&imgdii=ujKqYq0dr7YT-M",
-          "Id": Id,
-        };
+  registration() async {
+    if (_formkey.currentState!.validate()) {
+      if (password != confirmPw) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           backgroundColor: Colors.deepOrange,
-            content: Text("Registered Successfully",style: TextStyle(fontSize: 20.0),)));
-      }on FirebaseAuthException catch (e){
-        if(e.code == "weak-password"){
+          content: Text("Passwords do not match", style: TextStyle(fontSize: 20.0),),
+        ));
+        return;
+      }
+
+      try {
+        UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+            email: email, password: password);
+
+        String Id = randomAlphaNumeric(10);
+        String user = emailcontroller.text.replaceAll("@gmail.com", "");
+        String updatedusername = user.replaceFirst(user[0], user[0].toUpperCase());
+        String firstletter = user.substring(0, 1).toUpperCase();
+
+        Map<String, dynamic> userInfoMap = {
+          "Name": namecontroller.text,
+          "E-mail": emailcontroller.text,
+          "username": updatedusername,
+          "Searchkey": firstletter,
+          "Photo": "https://www.google.com/search?q=colorfull+contact+person+icon...",
+          "Id": Id,
+        };
+
+        await DatabaseMethods().addUserDetails(userInfoMap, Id);
+        await SharedPreferenceHelper().saveUserId(Id);
+        await SharedPreferenceHelper().saveUserDisplayName(namecontroller.text);
+        await SharedPreferenceHelper().saveUserEmail(emailcontroller.text);
+        await SharedPreferenceHelper().saveUserPic("https://www.google.com/search?q=colorfull+contact+person+icon...");
+        await SharedPreferenceHelper().saveUserName(emailcontroller.text.replaceAll("@gmail.com", ""));
+
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          backgroundColor: Colors.deepOrange,
+          content: Text("Registered Successfully", style: TextStyle(fontSize: 20.0),),
+        ));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => Home()));
+      } on FirebaseAuthException catch (e) {
+        if (e.code == "weak-password") {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             backgroundColor: Colors.deepOrange,
-              content: Text("Password Provided is too weak",style: TextStyle(fontSize: 20.0),)));
-        }else if (e.code == "email-already-in-use"){
+            content: Text("Password Provided is too weak", style: TextStyle(fontSize: 20.0),),
+          ));
+        } else if (e.code == "email-already-in-use") {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             backgroundColor: Colors.deepOrange,
-              content: Text("Account Already exists",style: TextStyle(fontSize: 20.0),)));
+            content: Text("Account Already exists", style: TextStyle(fontSize: 20.0),),
+          ));
         }
       }
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -214,7 +241,11 @@ class _SignInState extends State<SignUp> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text("Already have an account! "),
-                        Text(" SignIn",style: TextStyle(color:Color(0xff7f30fe), fontWeight: FontWeight.bold,fontSize: 16 ),),
+                        GestureDetector(
+                          onTap: (){
+                            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context)=>SignIn()));
+                          },
+                            child: Text(" SignIn",style: TextStyle(color:Color(0xff7f30fe), fontWeight: FontWeight.bold,fontSize: 16 ),)),
                       ],
                     ),
                   )
