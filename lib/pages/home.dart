@@ -1,8 +1,9 @@
+
 import 'package:chat_app/pages/chatpage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-
 import '../services/database.dart';
+import '../services/shared_pref.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -13,15 +14,69 @@ class Home extends StatefulWidget {
 
 class _HomeState extends State<Home> {
   bool search = false;
+  String? myName, myProfilePic, myUserName, myEmail;
+  Stream? chatRoomsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    onLoad();
+  }
+
+  onLoad() async {
+    await getSharedPrefs();
+    chatRoomsStream = await DatabaseMethods().getChatRooms();
+    setState(() {});
+  }
+
+  getSharedPrefs() async {
+    myName = await SharedPreferenceHelper().getDisplayName();
+    myProfilePic = await SharedPreferenceHelper().getUserPic();
+    myUserName = await SharedPreferenceHelper().getUserName();
+    myEmail = await SharedPreferenceHelper().getUserEmail();
+    setState(() {});
+  }
+
+  Widget chatRoomList() {
+    return StreamBuilder(
+      stream: chatRoomsStream,
+      builder: (context, AsyncSnapshot snapshot) {
+        return snapshot.hasData
+            ? ListView.builder(
+          padding: EdgeInsets.zero,
+          itemCount: snapshot.data.docs.length,
+          shrinkWrap: true,
+          itemBuilder: (context, index) {
+            DocumentSnapshot ds = snapshot.data.docs[index];
+            return ChatRoomListTile(
+              chatRoomId: ds.id,
+              lastMessage: ds["lastMessage"],
+              myUsername: myUserName!,
+              time: ds["lastMessageSendTs"],
+            );
+          },
+        )
+            : const Center(child: CircularProgressIndicator());
+      },
+    );
+  }
+
+  getChatRoomIdByUsername(String a, String b) {
+    if (a.substring(0, 1).codeUnitAt(0) > b.substring(0, 1).codeUnitAt(0)) {
+      return "$b\_$a";
+    } else {
+      return "$a\_$b";
+    }
+  }
 
   var queryResultSet = [];
-  var temSearchStore = [];
+  var tempSearchStore = [];
 
   initiateSearch(String value) {
     if (value.isEmpty) {
       setState(() {
         queryResultSet = [];
-        temSearchStore = [];
+        tempSearchStore = [];
         search = false;
       });
       return;
@@ -31,29 +86,24 @@ class _HomeState extends State<Home> {
       search = true;
     });
 
-    var capitalizedValue = value.substring(0, 1).toUpperCase() + value.substring(1);
+    String capitalizedValue =
+        value.substring(0, 1).toUpperCase() + value.substring(1);
 
     if (queryResultSet.isEmpty && value.length == 1) {
       DatabaseMethods().Search(value).then((QuerySnapshot docs) {
         if (docs != null) {
           setState(() {
             queryResultSet = docs.docs.map((doc) => doc.data()).toList();
-            temSearchStore = queryResultSet;
-            print("Query Results: $queryResultSet");
-            print("Filtered Results: $temSearchStore");
+            tempSearchStore = queryResultSet;
           });
-        } else {
-          print("No results found.");
         }
-      }).catchError((error) {
-        print("An error occurred: $error");
       });
     } else {
       setState(() {
-        temSearchStore = queryResultSet
-            .where((element) => element['username'].startsWith(capitalizedValue))
+        tempSearchStore = queryResultSet
+            .where((element) =>
+            element['username'].startsWith(capitalizedValue))
             .toList();
-        print("Filtered Results: $temSearchStore");
       });
     }
   }
@@ -67,7 +117,7 @@ class _HomeState extends State<Home> {
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20),
+                padding: const EdgeInsets.all(20),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -80,8 +130,10 @@ class _HomeState extends State<Home> {
                         decoration: const InputDecoration(
                             border: InputBorder.none,
                             hintText: "Search User here...",
-                            hintStyle: TextStyle(color: Colors.white70, fontSize: 20)),
-                        style: const TextStyle(color: Colors.white, fontSize: 20),
+                            hintStyle: TextStyle(
+                                color: Colors.white70, fontSize: 20)),
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 20),
                       ),
                     )
                         : const Text(
@@ -93,25 +145,25 @@ class _HomeState extends State<Home> {
                     ),
                     GestureDetector(
                       onTap: () {
-                        setState(() {
-                          search = true;
-                        });
+                        search = !search;
+                        setState(() {});
                       },
                       child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
                               color: Colors.white70,
                               borderRadius: BorderRadius.circular(20)),
-                          child: const Icon(
-                            Icons.search,
-                            color: Color(0xff02223b),
+                          child: Icon(
+                            search ? Icons.close : Icons.search,
+                            color: const Color(0xff02223b),
                           )),
                     )
                   ],
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+                padding:
+                const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
                 width: MediaQuery.of(context).size.width,
                 height: search
                     ? MediaQuery.of(context).size.height / 1.19
@@ -125,135 +177,23 @@ class _HomeState extends State<Home> {
                 child: Column(
                   children: [
                     search
-                        ? ListView(
-                      padding: const EdgeInsets.only(
-                        left: 10,
-                        right: 10,
+                        ? Expanded(
+                      child: ListView(
+                        padding:
+                        const EdgeInsets.symmetric(horizontal: 10),
+                        primary: false,
+                        shrinkWrap: true,
+                        children: tempSearchStore.map((element) {
+                          return buildResultCard(element);
+                        }).toList(),
                       ),
-                      primary: false,
-                      shrinkWrap: true,
-                      children: temSearchStore.map((element) {
-                        print("Building result card for: $element");
-                        return buildResultCard(element);
-                      }).toList(),
                     )
-                        : Column(
-                      children: [
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) => ChatPage()));
-                          },
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(60),
-                                child: const Image(
-                                  height: 70,
-                                  width: 70,
-                                  fit: BoxFit.cover,
-                                  image: AssetImage("assets/p4.jpeg"),
-                                ),
-                              ),
-                              const SizedBox(
-                                width: 20,
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(
-                                    height: 10,
-                                  ),
-                                  Row(
-                                    mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                    children: const [
-                                      Text(
-                                        "Hammad Arain",
-                                        style: TextStyle(
-                                            color: Colors.black,
-                                            fontWeight: FontWeight.w500,
-                                            fontSize: 20),
-                                      ),
-                                      SizedBox(
-                                        width: 40,
-                                      ),
-                                    ],
-                                  ),
-                                  const Text(
-                                    "Hello, what are you doing?",
-                                    style: TextStyle(
-                                        color: Colors.black45, fontSize: 14),
-                                  )
-                                ],
-                              ),
-                              const Spacer(),
-                              const Text(
-                                "04:33 PM",
-                                style: TextStyle(
-                                    color: Colors.black45, fontSize: 14),
-                              )
-                            ],
-                          ),
-                        ),
-                        const SizedBox(
-                          height: 20,
-                        ),
-                        Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(60),
-                              child: const Image(
-                                height: 70,
-                                width: 70,
-                                fit: BoxFit.cover,
-                                image: AssetImage("assets/logo.jpeg"),
-                              ),
-                            ),
-                            const SizedBox(
-                              width: 20,
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(
-                                  height: 10,
-                                ),
-                                Row(
-                                  mainAxisAlignment:
-                                  MainAxisAlignment.spaceEvenly,
-                                  children: const [
-                                    Text(
-                                      "Sindh University",
-                                      style: TextStyle(
-                                          color: Colors.black,
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 20),
-                                    ),
-                                  ],
-                                ),
-                                const Text(
-                                  "Hello, what are you doing?",
-                                  style: TextStyle(
-                                      color: Colors.black45, fontSize: 14),
-                                )
-                              ],
-                            ),
-                            const Spacer(),
-                            const Text(
-                              "04:33 PM",
-                              style: TextStyle(
-                                  color: Colors.black45, fontSize: 14),
-                            )
-                          ],
-                        ),
-                      ],
+                        : Expanded(
+                      child: chatRoomList(),
                     ),
                   ],
                 ),
-              )
+              ),
             ],
           ),
         ),
@@ -261,43 +201,245 @@ class _HomeState extends State<Home> {
     );
   }
 
-  Widget buildResultCard(data) {
-    return Container(
-      margin: const EdgeInsets.symmetric(
-        vertical: 8,
+  Widget buildUserRow({
+    required String imageUrl,
+    required String name,
+    required String message,
+    required String time,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        // Handle tap event
+      },
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(60),
+            child: Image.asset(
+              imageUrl,
+              height: 70,
+              width: 70,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 20),
+                    ),
+                  ],
+                ),
+                Text(
+                  message,
+                  style: const TextStyle(
+                      color: Colors.black45, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            time,
+            style: const TextStyle(color: Colors.black45, fontSize: 14),
+          )
+        ],
       ),
-      child: Material(
-        elevation: 5,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-              color: Colors.white, borderRadius: BorderRadius.circular(10)),
-          child: Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    data["Name"],
-                    style: const TextStyle(
-                        color: Colors.black,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold),
+    );
+  }
+
+  Widget buildResultCard(data) {
+    return GestureDetector(
+      onTap: () async {
+        if (myUserName == null || data["username"] == null) {
+          return;
+        }
+
+        search = false;
+        setState(() {});
+
+        var chatRoomId = getChatRoomIdByUsername(myUserName!, data["username"]);
+        Map<String, dynamic> chatRoomInfoMap = {
+          "users": [myUserName, data["username"]]
+        };
+
+        await DatabaseMethods().creatChatRoom(chatRoomId, chatRoomInfoMap);
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (context) => ChatPage(
+                  name: data["Name"],
+                  profileurl: data["Photo"],
+                  username: data["username"])),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        child: Material(
+          elevation: 5,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+                color: Colors.white, borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              children: [
+                ClipRRect(
+                    borderRadius: BorderRadius.circular(60),
+                    child: Image.network(
+                      data["Photo"],
+                      height: 50,
+                      width: 50,
+                      fit: BoxFit.cover,
+                    )),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        data["Name"],
+                        style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        data["username"],
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(
-                    height: 10,
+                )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ChatRoomListTile extends StatefulWidget {
+  final String lastMessage, chatRoomId, myUsername, time;
+  const ChatRoomListTile({
+    required this.chatRoomId,
+    required this.lastMessage,
+    required this.myUsername,
+    required this.time,
+  });
+
+  @override
+  State<ChatRoomListTile> createState() => _ChatRoomListTileState();
+}
+
+class _ChatRoomListTileState extends State<ChatRoomListTile> {
+  String profilePicUrl = "", name = "", username = "", id = "";
+
+  getThisUserInfo() async {
+    username = widget.chatRoomId
+        .replaceAll(widget.myUsername, "")
+        .replaceAll("_", "");
+
+    QuerySnapshot querySnapshot =
+    await DatabaseMethods().getUserInfo(username);
+
+    name = querySnapshot.docs[0]["Name"];
+    profilePicUrl = querySnapshot.docs[0]["Photo"];
+    id = querySnapshot.docs[0]["uid"];
+    setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    getThisUserInfo();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) => ChatPage(
+                    name: name,
+                    profileurl: profilePicUrl,
+                    username: username)));
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        child: Material(
+          elevation: 5,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+                color: Colors.white, borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              children: [
+                ClipRRect(
+                    borderRadius: BorderRadius.circular(60),
+                    child: Image.network(
+                      profilePicUrl,
+                      height: 50,
+                      width: 50,
+                      fit: BoxFit.cover,
+                    )),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        widget.lastMessage,
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
-                    data["username"],
-                    style: const TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18),
-                  )
-                ],
-              )
-            ],
+                ),
+                const SizedBox(width: 5),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.time,
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                  ],
+                )
+              ],
+            ),
           ),
         ),
       ),
